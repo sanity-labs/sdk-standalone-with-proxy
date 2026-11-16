@@ -1,0 +1,8 @@
+node_modules
+dist
+.sanity
+.vercel
+*.local
+*.tsbuildinfo
+.DS_Store
+scratch

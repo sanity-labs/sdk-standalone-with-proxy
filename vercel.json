@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/sanity-api/:__sanity_path*",
+      "destination": "/api/sanity-proxy?__sanity_path=:__sanity_path*"
+    },
+    {"source": "/((?!api/).*)", "destination": "/index.html"}
+  ]
+}
