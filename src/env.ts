@@ -1,5 +1,5 @@
 // `sanity dev` and `sanity build` replace `process.env.SANITY_APP_*` with literal
-// values at build time. Values come from the shell or `.env.local`.
+// values at build time. Values come from the shell or `.env`.
 // Everything here ends up in the browser bundle: identifiers only, never tokens.
 declare const process: {env: Record<string, string | undefined>}
 

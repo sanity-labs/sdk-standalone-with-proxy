@@ -1,22 +1,14 @@
-import {type SanityConfig} from '@sanity/sdk'
-import {SDKProvider, useCurrentUser} from '@sanity/sdk-react'
-import {hasSessionOrCallback, moveHashSidToQuery, projectHostClientFactory} from './auth/projectAuth'
-import {ProjectLogin} from './auth/ProjectLogin'
+import {useCurrentUser} from '@sanity/sdk-react'
 import {Suspense} from 'react'
+import {SanityProvider} from './auth/SanityProvider'
 import {dataset, projectId, useGlobalApiProxy} from './env'
 import {GlobalApiCheck} from './GlobalApiCheck'
 import {installGlobalApiProxy} from './globalApiProxy'
 import {RecentDocuments} from './RecentDocuments'
 import './App.css'
 
-// Both run before SDKProvider creates its instance, reads location.href and
-// creates its clients.
-moveHashSidToQuery()
+// Runs before SDKProvider creates its clients.
 if (useGlobalApiProxy) installGlobalApiProxy()
-
-const config: SanityConfig[] = [
-  {projectId, dataset, auth: {clientFactory: projectHostClientFactory}},
-]
 
 function Home() {
   const user = useCurrentUser()
@@ -25,6 +17,9 @@ function Home() {
       <p className="muted">
         Signed in as {user?.name ?? '(unknown)'} · {projectId}/{dataset}
       </p>
+      <form method="post" action="/api/auth/sanity/logout">
+        <button type="submit">Sign out</button>
+      </form>
       <h2>Recent documents</h2>
       <Suspense fallback={<p>Loading documents…</p>}>
         <RecentDocuments />
@@ -36,17 +31,16 @@ function Home() {
 
 function App() {
   if (!projectId) {
-    return <p>Set SANITY_APP_PROJECT_ID in .env.local (see .env.example).</p>
+    return <p>Set SANITY_APP_PROJECT_ID in .env (see .env.example).</p>
   }
-  // SDKProvider, not SanityApp: SanityApp redirects to sanity.io/welcome on any
-  // origin that is not localhost and not inside the Sanity Dashboard.
-  // While logged out, render the login screen instead of SDKProvider, because
-  // SDKProvider would redirect to www.sanity.io/login.
-  if (!hasSessionOrCallback()) return <ProjectLogin />
+  // SDKProvider (inside SanityProvider), not SanityApp: SanityApp redirects to
+  // sanity.io/welcome on any origin that is not localhost and not inside the
+  // Sanity Dashboard. SanityProvider gets the token from the server-side OAuth
+  // session, and sends the user to sign in when there is none.
   return (
-    <SDKProvider config={config} fallback={<p>Loading…</p>}>
+    <SanityProvider tokenUrl="/api/auth/sanity/token" rotate>
       <Home />
-    </SDKProvider>
+    </SanityProvider>
   )
 }
 

@@ -3,6 +3,7 @@
   "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
+  "devCommand": "sanity dev --port $PORT",
   "outputDirectory": "dist",
   "rewrites": [
     {
