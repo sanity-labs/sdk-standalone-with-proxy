@@ -1,6 +1,6 @@
 // Project-scoped login for a standalone App SDK app on your own domain.
 //
-// The SDK's built-in standalone login (SDK 3.12.0) sends users to
+// The SDK's built-in standalone login (SDK 3.15.0) sends users to
 // www.sanity.io/login. That page only returns users to localhost and Sanity
 // domains, so on any other origin the user ends up on sanity.io/welcome. The SDK
 // then exchanges the `sid` and calls users/me on the global api.sanity.io, which
@@ -53,23 +53,6 @@ export function hasSessionOrCallback(): boolean {
   } catch {
     return false
   }
-}
-
-// The provider login returns `#sid=...` in the hash. The SDK reads `sid` from the
-// hash or the query, but only removes it from the query after the exchange. A
-// `#sid` left in the URL makes a reload retry a used sid ("The session ID is
-// invalid or expired"). Moving it to the query lets the SDK's cleanup remove it.
-// Call before SDKProvider mounts.
-export function moveHashSidToQuery(): void {
-  const hash = new URLSearchParams(window.location.hash.slice(1))
-  const sid = hash.get('sid')
-  if (!sid) return
-  hash.delete('sid')
-  const url = new URL(window.location.href)
-  url.searchParams.set('sid', sid)
-  const rest = hash.toString()
-  url.hash = rest ? `#${rest}` : ''
-  window.history.replaceState(null, '', url.toString())
 }
 
 // The SDK calls `auth.clientFactory` only from its auth store. In standalone mode

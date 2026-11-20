@@ -7,8 +7,8 @@ import {ProjectLogin} from './ProjectLogin'
 
 // Auth mode `project` (default). Project-scoped Sanity login, browser only.
 // While logged out, renders the login screen instead of SDKProvider, because
-// SDKProvider would redirect to www.sanity.io/login. Call moveHashSidToQuery()
-// before this mounts (see App.tsx).
+// SDKProvider would redirect to www.sanity.io/login. The SDK (3.14.0 or later)
+// exchanges the `#sid` the login returns and removes it from the URL.
 
 const config: SanityConfig[] = [
   {projectId, dataset, auth: {clientFactory: projectHostClientFactory}},
