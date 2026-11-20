@@ -14,7 +14,7 @@ import {projectHostClientFactory} from './projectAuth'
 //
 // With `auth.token` set, the SDK skips its own login flow, so it never redirects
 // to www.sanity.io/login. `SDKProvider` and `setAuthToken` are marked `@internal`
-// in @sanity/sdk 3.12, so they may change between SDK releases.
+// in @sanity/sdk 3.15, so they may change between SDK releases.
 
 export interface OAuthAuthProviderProps {
   /** Endpoint returning `{accessToken, expiresAt}`. */

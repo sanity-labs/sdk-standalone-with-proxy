@@ -1,7 +1,6 @@
 import {useCurrentUser} from '@sanity/sdk-react'
 import {Suspense} from 'react'
 import {OAuthAuthProvider} from './auth/OAuthAuthProvider'
-import {moveHashSidToQuery} from './auth/projectAuth'
 import {ProjectAuthProvider} from './auth/ProjectAuthProvider'
 import {SignOutButton} from './auth/SignOutButton'
 import {authMode, dataset, projectId, useGlobalApiProxy} from './env'
@@ -10,9 +9,7 @@ import {installGlobalApiProxy} from './globalApiProxy'
 import {RecentDocuments} from './RecentDocuments'
 import './App.css'
 
-// Both run before SDKProvider creates its instance, reads location.href and
-// creates its clients.
-if (authMode === 'project') moveHashSidToQuery()
+// Runs before SDKProvider creates its clients.
 if (useGlobalApiProxy) installGlobalApiProxy()
 
 // SANITY_APP_AUTH_MODE: `project` (default) or `oauth`. See README "Choose an auth mode".
