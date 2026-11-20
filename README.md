@@ -174,7 +174,7 @@ Deploy: see [Deploy to Vercel](#deploy-to-vercel).
 
 ## Build it yourself, step by step
 
-These steps take an App SDK app from Dashboard-only to standalone on your own domain. File references point to this template, so you can copy the code. Steps 1 to 4 apply to both modes. Then follow 5P to 6P for `project` mode or 5O to 7O for `oauth` mode.
+These steps take an App SDK app from Dashboard-only to standalone on your own domain. File references point to this template, so you can copy the code. Steps 1 to 4 apply to both modes. Then follow 5P to 7P for `project` mode or 5O to 7O for `oauth` mode.
 
 ### 1. Start from an App SDK app
 
@@ -252,6 +252,28 @@ The provider login returns `#sid=...` in the hash. The SDK reads `sid` from the 
 ```ts
 moveHashSidToQuery() // top level of App.tsx
 ```
+
+### 7P. `project` mode, optional: SAML SSO
+
+If your organization uses SAML SSO (an Enterprise plan feature), add it as one more login option. SAML is not in the project's `auth/providers` list. A Studio adds it through `auth.providers` in its config, and this template does the same with three build-time variables:
+
+```bash
+SANITY_APP_SSO_LOGIN_URL=<project-specific SAML login URL>
+SANITY_APP_SSO_TITLE=Acme SSO   # button text, default "SSO"
+SANITY_APP_SSO_ONLY=true        # optional: hide Google, GitHub and email
+```
+
+1. Configure SAML SSO for the organization and enable it for the project. See [Set up single sign-on with SAML](https://www.sanity.io/docs/developer-guides/sso-saml).
+2. Copy the project-specific login URL from sanity.io/manage → your organization → Settings → SAML SSO. It is an identifier, not a secret, so it can go in the bundle.
+3. Set the variables and rebuild. `ProjectLogin` adds a "Continue with <title>" link. `loginHref()` replaces any `origin` already in the URL with the current page, and sets `projectId` and `withSid=true`, the same as for the other providers.
+4. Keep the app's origin in the project's CORS list with credentials (step 8).
+
+Things to know:
+
+- A SAML login creates a separate Sanity account from the user's Google, GitHub or email login. Role mapping from identity provider groups applies at login.
+- The SAML session TTL is set in the SAML configuration (12 hours by default, up to 1 week). Not tested here: what happens when the stored token expires while the app is open.
+- Not tested end to end: the template's test organization has no SAML configuration. The login screen and the generated URLs were checked with a placeholder URL.
+- `oauth` mode does not use these variables. Whether the OAuth authorize page offers SAML SSO is not known.
 
 ### 5O. `oauth` mode: create the OAuth client and register redirect URIs
 
@@ -439,6 +461,7 @@ curl -i "https://your-app.example.com/sanity-api/v2025-02-19/users/me"  # proxy:
 - **`oauth` mode: logout does not end the sanity.io login.** Revoking the token does not necessarily sign the user out of sanity.io, so the next sign-in may skip the login screen.
 - **`oauth` mode: local dev needs `vercel dev`.** `sanity dev` alone cannot run the auth functions.
 - **`oauth` mode: not yet tested end to end** against a real OAuth client, including whether an organization-scoped OAuth token is accepted by the project host's `users/me`.
+- **SAML SSO (`project` mode) not tested end to end.** Only the login screen and its URLs were checked, with a placeholder login URL. See step 7P.
 - **Dashboard-only features do not work standalone.** Favorites, document history and `useFrameConnection` need the Dashboard frame. This is unrelated to hosting.
 - **Not verified through the proxy.** PATCH and PUT, `useUsers`/`useUser`, `useDeleteApplication`, comments, agent actions, and cold-start latency. GET, POST and DELETE were tested through the same proxy design.
 - **Both auth modes and the proxy shim are always in the bundle.** `SANITY_APP_AUTH_MODE` and `SANITY_APP_GLOBAL_API_PROXY` control which code runs, not what is bundled. No secrets are in the browser code.
@@ -452,7 +475,7 @@ curl -i "https://your-app.example.com/sanity-api/v2025-02-19/users/me"  # proxy:
 | `src/env.ts` | Reads the `SANITY_APP_*` build-time variables, including `authMode`. |
 | `src/auth/projectAuth.ts` | `projectHostClientFactory` (both modes), plus the `project` mode login helpers and `moveHashSidToQuery`. |
 | `src/auth/ProjectAuthProvider.tsx` | `project` mode: login screen while logged out, otherwise `SDKProvider` with the client factory. |
-| `src/auth/ProjectLogin.tsx` | `project` mode: lists the project's login providers. |
+| `src/auth/ProjectLogin.tsx` | `project` mode: lists the project's login providers, plus the optional SAML SSO link. |
 | `src/auth/OAuthAuthProvider.tsx` | `oauth` mode: fetches the access token, starts `SDKProvider` with it, rotates it, redirects to sign-in on 401. |
 | `src/auth/SignOutButton.tsx` | Sign-out for the current mode. |
 | `src/RecentDocuments.tsx` | Example data view. Lists documents and edits each `title` with `useEditDocument`. Replace with your app. |

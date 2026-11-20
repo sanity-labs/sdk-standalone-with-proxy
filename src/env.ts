@@ -14,3 +14,9 @@ export const useGlobalApiProxy = process.env.SANITY_APP_GLOBAL_API_PROXY === 'tr
 // needed. `oauth`: Sanity OAuth through the api/auth/sanity/* functions.
 export const authMode: 'project' | 'oauth' =
   process.env.SANITY_APP_AUTH_MODE === 'oauth' ? 'oauth' : 'project'
+// Optional, `project` mode: SAML SSO. The project-specific login URL from
+// sanity.io/manage → Organization → Settings → SAML SSO. Not a secret.
+export const ssoLoginUrl = process.env.SANITY_APP_SSO_LOGIN_URL || ''
+export const ssoTitle = process.env.SANITY_APP_SSO_TITLE || 'SSO'
+// Show only the SSO option on the login screen.
+export const ssoOnly = process.env.SANITY_APP_SSO_ONLY === 'true'
