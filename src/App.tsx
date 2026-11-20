@@ -1,9 +1,10 @@
-import {type SanityConfig} from '@sanity/sdk'
-import {SDKProvider, useCurrentUser} from '@sanity/sdk-react'
-import {hasSessionOrCallback, moveHashSidToQuery, projectHostClientFactory} from './auth/projectAuth'
-import {ProjectLogin} from './auth/ProjectLogin'
+import {useCurrentUser} from '@sanity/sdk-react'
 import {Suspense} from 'react'
-import {dataset, projectId, useGlobalApiProxy} from './env'
+import {OAuthAuthProvider} from './auth/OAuthAuthProvider'
+import {moveHashSidToQuery} from './auth/projectAuth'
+import {ProjectAuthProvider} from './auth/ProjectAuthProvider'
+import {SignOutButton} from './auth/SignOutButton'
+import {authMode, dataset, projectId, useGlobalApiProxy} from './env'
 import {GlobalApiCheck} from './GlobalApiCheck'
 import {installGlobalApiProxy} from './globalApiProxy'
 import {RecentDocuments} from './RecentDocuments'
@@ -11,12 +12,11 @@ import './App.css'
 
 // Both run before SDKProvider creates its instance, reads location.href and
 // creates its clients.
-moveHashSidToQuery()
+if (authMode === 'project') moveHashSidToQuery()
 if (useGlobalApiProxy) installGlobalApiProxy()
 
-const config: SanityConfig[] = [
-  {projectId, dataset, auth: {clientFactory: projectHostClientFactory}},
-]
+// SANITY_APP_AUTH_MODE: `project` (default) or `oauth`. See README "Choose an auth mode".
+const AuthProvider = authMode === 'oauth' ? OAuthAuthProvider : ProjectAuthProvider
 
 function Home() {
   const user = useCurrentUser()
@@ -25,6 +25,7 @@ function Home() {
       <p className="muted">
         Signed in as {user?.name ?? '(unknown)'} · {projectId}/{dataset}
       </p>
+      <SignOutButton />
       <h2>Recent documents</h2>
       <Suspense fallback={<p>Loading documents…</p>}>
         <RecentDocuments />
@@ -36,17 +37,16 @@ function Home() {
 
 function App() {
   if (!projectId) {
-    return <p>Set SANITY_APP_PROJECT_ID in .env.local (see .env.example).</p>
+    return <p>Set SANITY_APP_PROJECT_ID in .env (see .env.example).</p>
   }
-  // SDKProvider, not SanityApp: SanityApp redirects to sanity.io/welcome on any
-  // origin that is not localhost and not inside the Sanity Dashboard.
-  // While logged out, render the login screen instead of SDKProvider, because
-  // SDKProvider would redirect to www.sanity.io/login.
-  if (!hasSessionOrCallback()) return <ProjectLogin />
+  // Both providers render SDKProvider, not SanityApp: SanityApp redirects to
+  // sanity.io/welcome on any origin that is not localhost and not inside the
+  // Sanity Dashboard. `project` mode shows a project-scoped login screen while
+  // logged out. `oauth` mode gets the token from the server-side OAuth session.
   return (
-    <SDKProvider config={config} fallback={<p>Loading…</p>}>
+    <AuthProvider>
       <Home />
-    </SDKProvider>
+    </AuthProvider>
   )
 }
 

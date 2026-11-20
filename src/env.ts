@@ -1,5 +1,5 @@
 // `sanity dev` and `sanity build` replace `process.env.SANITY_APP_*` with literal
-// values at build time. Values come from the shell or `.env.local`.
+// values at build time. Values come from the shell or `.env`.
 // Everything here ends up in the browser bundle: identifiers only, never tokens.
 declare const process: {env: Record<string, string | undefined>}
 
@@ -10,3 +10,7 @@ export const documentType = process.env.SANITY_APP_DOCUMENT_TYPE || ''
 // Optional: route global api.sanity.io calls through the /sanity-api proxy
 // (needs api/sanity-proxy.ts deployed on the same origin).
 export const useGlobalApiProxy = process.env.SANITY_APP_GLOBAL_API_PROXY === 'true'
+// How users sign in. `project` (default): project-scoped Sanity login, no server
+// needed. `oauth`: Sanity OAuth through the api/auth/sanity/* functions.
+export const authMode: 'project' | 'oauth' =
+  process.env.SANITY_APP_AUTH_MODE === 'oauth' ? 'oauth' : 'project'
