@@ -33,12 +33,13 @@ export async function fetchLoginProviders(): Promise<LoginProvider[]> {
 }
 
 export function loginHref(provider: LoginProvider): string {
-  const params = new URLSearchParams({
-    origin: `${window.location.origin}${window.location.pathname}`,
-    projectId,
-    withSid: 'true',
-  })
-  return `${provider.url}?${params}`
+  // `set`, not append: a login URL copied from sanity.io/manage (SAML SSO) can
+  // already carry its own `origin`, which must be replaced with this page.
+  const url = new URL(provider.url)
+  url.searchParams.set('origin', `${window.location.origin}${window.location.pathname}`)
+  url.searchParams.set('projectId', projectId)
+  url.searchParams.set('withSid', 'true')
+  return url.toString()
 }
 
 // True when SDKProvider can mount without redirecting to www.sanity.io/login:
