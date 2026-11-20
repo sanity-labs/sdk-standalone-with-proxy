@@ -326,7 +326,7 @@ curl -i "https://your-app.example.com/sanity-api/v2025-02-19/users/me"  # proxy:
 | `src/App.tsx` | Entry. Optionally installs the proxy shim, renders `SanityProvider` and the example view with a sign-out button. |
 | `src/env.ts` | Reads the `SANITY_APP_*` build-time variables. |
 | `src/auth/SanityProvider.tsx` | Fetches the access token, starts `SDKProvider` with it, rotates it, redirects to sign-in on 401. |
-| `src/RecentDocuments.tsx` | Example data view (`useDocuments`, `useDocumentProjection`). Replace with your app. |
+| `src/RecentDocuments.tsx` | Example data view. Lists documents and edits each `title` with `useEditDocument`. Replace with your app. |
 | `src/GlobalApiCheck.tsx` | Diagnostic panel for global-API hooks. Optional. |
 | `src/globalApiProxy.ts` | Optional browser shim: `api.sanity.io` → `/sanity-api`. |
 | `api/auth/sanity/login.ts` | Starts OAuth: sealed state and PKCE cookie, redirect to the authorize URL. |

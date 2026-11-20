@@ -20,3 +20,26 @@ h2 {
 .error {
   color: #b42318;
 }
+.doc-list {
+  list-style: none;
+  padding: 0;
+}
+.doc-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.35rem 0;
+}
+.doc-row .type {
+  flex: 0 0 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-row input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.25rem 0.4rem;
+}
+
