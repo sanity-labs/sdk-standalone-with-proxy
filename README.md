@@ -1,18 +1,22 @@
-# Standalone Sanity App SDK app with Sanity OAuth, and an optional global API proxy
+# Standalone Sanity App SDK app with a choice of sign-in, and an optional global API proxy
 
-This template runs a [Sanity App SDK](https://www.sanity.io/docs/app-sdk) app on your own domain (for example Vercel) instead of inside the Sanity Dashboard. Users sign in with their own Sanity account through Sanity OAuth, and the app reads and edits content in one Sanity project as that user.
+This template runs a [Sanity App SDK](https://www.sanity.io/docs/app-sdk) app on your own domain (for example Vercel) instead of inside the Sanity Dashboard. Users sign in with their own Sanity account, and the app reads and edits content in one Sanity project as that user.
 
-Sign-in is a confidential OAuth client (authorization code flow with PKCE) running in Vercel Functions. The access and refresh tokens live in an encrypted httpOnly cookie, and the browser only ever holds a short-lived access token, in memory. The OAuth implementation is ported from [demo-repositories/embedded-sdk](https://github.com/demo-repositories/embedded-sdk), a Next.js version of the same idea.
+It supports two ways to sign in. Pick one per deployment with `SANITY_APP_AUTH_MODE`:
 
-It also includes an optional Vercel Function that proxies the global Sanity API, so hooks such as `useProject`, `useProjects` and `useOrganizations` work from your domain.
+- **`project`** (default): project-scoped Sanity login, the same login a self-hosted Sanity Studio uses. Browser only. No server code, no OAuth client.
+- **`oauth`**: Sanity OAuth through a confidential client (authorization code flow with PKCE) in Vercel Functions. Tokens live in an encrypted httpOnly cookie. Needs an OAuth client for your organization. Ported from [demo-repositories/embedded-sdk](https://github.com/demo-repositories/embedded-sdk), a Next.js version of the same idea.
+
+It also includes an optional Vercel Function that proxies the global Sanity API, so hooks such as `useProject`, `useProjects` and `useOrganizations` work from your domain. It works with either auth mode.
 
 You do not have to use this repository. The [step-by-step guide](#build-it-yourself-step-by-step) below explains each change, so you can apply it to an existing App SDK app.
 
-Tested with `@sanity/sdk` and `@sanity/sdk-react` 3.12.0, `@sanity/client` 8.15.1, `sanity` 6.23.0, `iron-session` 9.1, Node 22.12+ and Vercel.
+Tested with `@sanity/sdk` and `@sanity/sdk-react` 3.12.0, `@sanity/client` 8.15.1, `sanity` 6.23.0, `iron-session` 9.1, Node 22.12+ and Vercel. OAuth mode has not yet been tested end to end against a real OAuth client.
 
 ## Contents
 
 - [What breaks by default on your own domain](#what-breaks-by-default-on-your-own-domain)
+- [Choose an auth mode](#choose-an-auth-mode)
 - [How sign-in works](#how-sign-in-works)
 - [Quick start with this template](#quick-start-with-this-template)
 - [Build it yourself, step by step](#build-it-yourself-step-by-step)
@@ -29,14 +33,50 @@ The App SDK quickstart builds apps for the Sanity Dashboard. On `localhost` ever
 | Problem | Cause | Fix in this template |
 |---|---|---|
 | The app redirects to `sanity.io/welcome` after one second. | `SanityApp` redirects whenever the page is not on localhost and not inside the Dashboard. | Render `SDKProvider` instead of `SanityApp`. |
-| Login never returns to your app. | The SDK's built-in login goes to `www.sanity.io/login`. That page only returns users to localhost and Sanity domains. | Sign in with Sanity OAuth instead, using redirect URIs registered on your own OAuth client. Pass the token to the SDK with `auth.token`, so the SDK never starts its own login. |
-| After login: "Authentication Error". | The SDK's own login exchanges the session and loads the current user on the global host `api.sanity.io`, which sends no CORS headers for your domain. | The token exchange, the organization check and `/users/me` run on the server, in the callback function. |
-| A browser-held token can list the user's whole account. | The SDK's standalone login stores its token in `localStorage`. | Tokens are sealed in an httpOnly cookie. The browser gets only the access token, kept in memory and fetched from `/api/auth/sanity/token`. The refresh token and client secret never leave the server. |
+| Login never returns to your app. | The SDK's built-in login goes to `www.sanity.io/login`. That page only returns users to localhost and Sanity domains. | `project`: a project-scoped login screen, which returns to any origin in the project's CORS list. `oauth`: Sanity OAuth with redirect URIs registered on your own OAuth client, and the token passed to the SDK with `auth.token`. |
+| After login: "Authentication Error". | The SDK exchanges the session and loads the current user (`users/me`) on the global host `api.sanity.io`, which sends no CORS headers for your domain. | Both modes give the SDK an `auth.clientFactory` that sends its auth requests to the project host. |
+| A reload right after login fails with "The session ID is invalid or expired". | `project` only. The login returns `#sid=` in the hash, and the SDK does not remove a `sid` from the hash. | Move `#sid` to the query before the SDK starts. |
 | `useProject`, `useProjects`, `useOrganizations`, `useUsers` and similar hooks fail with CORS errors. | These hooks call `api.sanity.io`, which sends no CORS headers for your domain and rejects requests whose `Origin` it does not allow. | Optional same-origin proxy (Vercel Function) that forwards these calls without the `Origin` header. |
 
 Document and query hooks use the project host (`<projectId>.api.sanity.io`), which honors the project's CORS origins. Once sign-in works, they work on your domain without a proxy. You need the proxy only if you use global-API hooks.
 
+## Choose an auth mode
+
+| | `project` (default) | `oauth` |
+|---|---|---|
+| Sign-in | Project-scoped Sanity login (Google, GitHub, email) | Sanity OAuth, organization picked on the Sanity sign-in page |
+| Server code | None. Any static host works. | Vercel Functions in `api/auth/sanity/` |
+| Setup | Project CORS origin | Project CORS origin, OAuth client, redirect URI, three secrets |
+| Token in the browser | `localStorage` (`__sanity_auth_token`) | Access token in memory only. Refresh token and client secret stay on the server. |
+| Token scope | One project host, but the global API accepts it for every organization the user belongs to | Requested for one organization (`resource` indicator). Not yet verified against a real client. |
+| Local dev | `pnpm dev` (`sanity dev`, port 3333) | `pnpm dev:oauth` (`vercel dev`, port 3000) |
+
+Set the mode at build time:
+
+```bash
+SANITY_APP_AUTH_MODE=oauth   # or project, or leave unset for project
+```
+
+The browser code reads it at build time (`sanity build` inlines `SANITY_APP_*`). The auth functions read it at runtime and answer 404 unless it is `oauth`, so on Vercel set it once in the project's environment variables for both.
+
+Switching an existing deployment signs everyone out. Users sign in again with the new mode. OAuth mode removes a leftover `__sanity_auth_token` from `localStorage` on start.
+
+To remove a mode you do not use:
+
+- `project`: delete `src/auth/ProjectLogin.tsx` and `src/auth/ProjectAuthProvider.tsx`, and the `hasSessionOrCallback`, `fetchLoginProviders`, `loginHref` and `moveHashSidToQuery` functions. Keep `projectHostClientFactory`: OAuth mode uses it too.
+- `oauth`: delete `api/auth/`, `api/_lib/` and `src/auth/OAuthAuthProvider.tsx`, and remove `iron-session` and `@types/node`.
+
+Then simplify `src/App.tsx` and `src/auth/SignOutButton.tsx`.
+
 ## How sign-in works
+
+### `project` mode
+
+1. While there is no session, `ProjectAuthProvider` renders a login screen instead of `SDKProvider`. It lists the project's login providers from `<projectId>.api.sanity.io/auth/providers`.
+2. Each provider link goes to `api.sanity.io/v1/auth/login/<provider>?origin=<this page>&projectId=<projectId>&withSid=true`. That endpoint only returns to origins in the project's CORS list.
+3. The user comes back with `#sid=<session id>`. The app moves it to the query, then `SDKProvider` exchanges it for a token on the project host and stores the token in `localStorage`.
+
+### `oauth` mode
 
 ```mermaid
 sequenceDiagram
@@ -57,12 +97,12 @@ sequenceDiagram
     Fn-->>Browser: Encrypted session cookie, redirect to returnTo
     Browser->>Fn: GET /api/auth/sanity/token
     Fn-->>Browser: accessToken, refreshed server-side when near expiry
-    Browser->>Project: SDK hooks with the token
+    Browser->>Project: SDK hooks and users/me with the token
 ```
 
 ## Quick start with this template
 
-Requirements: Node 22.12 or later, pnpm, a Vercel account (for `vercel dev`), a Sanity project, its organization ID, and permission to create an OAuth client in that organization.
+Requirements: Node 22.12 or later, pnpm, a Sanity project and its organization ID. For `oauth` mode also a Vercel account (for `vercel dev`) and permission to create an OAuth client in the organization.
 
 1. Install dependencies.
 
@@ -70,15 +110,7 @@ Requirements: Node 22.12 or later, pnpm, a Vercel account (for `vercel dev`), a 
    pnpm install
    ```
 
-2. Create an OAuth client for your Sanity organization, and register this redirect URI on it:
-
-   ```
-   http://localhost:3000/api/auth/sanity/callback
-   ```
-
-   Note the client ID and the client secret. The secret is shown once. If you cannot create OAuth clients, ask your organization admin or Sanity support.
-
-3. Create `.env` from the example and fill it in. Use `.env`, not `.env.local`: `vercel dev` loads only `.env` for the functions. It is gitignored.
+2. Create `.env` from the example and fill in the shared variables. It is gitignored.
 
    ```bash
    cp .env.example .env
@@ -86,31 +118,63 @@ Requirements: Node 22.12 or later, pnpm, a Vercel account (for `vercel dev`), a 
 
    - `SANITY_APP_PROJECT_ID`, `SANITY_APP_DATASET`: your project (sanity.io/manage) and dataset.
    - `SANITY_APP_ORGANIZATION_ID`: the organization that owns the project. Find it in sanity.io/manage or with `pnpm exec sanity organizations list`.
-   - `SANITY_OAUTH_CLIENT_ID`, `SANITY_OAUTH_CLIENT_SECRET`: from step 2.
-   - `SESSION_SECRET`: at least 32 random characters, for example `openssl rand -base64 48`.
-   - The OAuth endpoint URLs and redirect URI defaults in `.env.example` are correct for local development.
 
-4. Allow the dev origin in your project's CORS settings.
+3. Continue with the mode you picked.
+
+### `project` mode
+
+1. Allow the dev origin in your project's CORS settings, with credentials.
 
    ```bash
-   pnpm exec sanity cors add http://localhost:3000 --project <projectId>
+   pnpm exec sanity cors add http://localhost:3333 --credentials --project <projectId>
    ```
 
-5. Start the dev server and open http://localhost:3000.
+2. Start the dev server and open http://localhost:3333.
 
    ```bash
    pnpm dev
    ```
 
-   `pnpm dev` runs `vercel dev`, which serves the functions in `api/` and runs `sanity dev` behind them (the `devCommand` in `vercel.json`). The first run asks you to log in to Vercel and link the directory to a Vercel project. `pnpm dev:app` runs `sanity dev` alone, which has no `/api` routes, so sign-in does not work there.
+   You see a "Sign in" screen with your project's login providers. After signing in you see your name, a sign-out button, recent documents, and a "Global API hooks" panel. On localhost the proxy is off and the global hooks call `api.sanity.io` directly, because that host allows localhost.
 
-   You are redirected to sign in with Sanity. After signing in you see your name, a sign-out button, recent documents, and a "Global API hooks" panel. On localhost the proxy is off and the global hooks call `api.sanity.io` directly, because that host allows localhost.
+### `oauth` mode
 
-6. Deploy: see [Deploy to Vercel](#deploy-to-vercel).
+1. Create an OAuth client for your Sanity organization, and register this redirect URI on it:
+
+   ```
+   http://localhost:3000/api/auth/sanity/callback
+   ```
+
+   Note the client ID and the client secret. The secret is shown once. If you cannot create OAuth clients, ask your organization admin or Sanity support.
+
+2. Fill in the OAuth variables in `.env`. Use `.env`, not `.env.local`: `vercel dev` loads only `.env` for the functions.
+
+   - `SANITY_APP_AUTH_MODE=oauth`.
+   - `SANITY_OAUTH_CLIENT_ID`, `SANITY_OAUTH_CLIENT_SECRET`: from step 1.
+   - `SESSION_SECRET`: at least 32 random characters, for example `openssl rand -base64 48`.
+   - The OAuth endpoint URLs and redirect URI defaults in `.env.example` are correct for local development.
+
+3. Allow the dev origin in your project's CORS settings.
+
+   ```bash
+   pnpm exec sanity cors add http://localhost:3000 --project <projectId>
+   ```
+
+4. Start the dev server and open http://localhost:3000.
+
+   ```bash
+   pnpm dev:oauth
+   ```
+
+   `pnpm dev:oauth` runs `vercel dev`, which serves the functions in `api/` and runs `sanity dev` behind them (the `devCommand` in `vercel.json`). The first run asks you to log in to Vercel and link the directory to a Vercel project. Plain `pnpm dev` has no `/api` routes, so OAuth sign-in does not work there.
+
+   You are redirected to sign in with Sanity, then see the same view as in `project` mode.
+
+Deploy: see [Deploy to Vercel](#deploy-to-vercel).
 
 ## Build it yourself, step by step
 
-These steps take an App SDK app from Dashboard-only to standalone on your own domain. File references point to this template, so you can copy the code.
+These steps take an App SDK app from Dashboard-only to standalone on your own domain. File references point to this template, so you can copy the code. Steps 1 to 4 apply to both modes. Then follow 5P to 6P for `project` mode or 5O to 7O for `oauth` mode.
 
 ### 1. Start from an App SDK app
 
@@ -122,18 +186,18 @@ npx sanity@latest init --template app-quickstart --typescript --package-manager 
 
 The quickstart writes `SanityApp` into `src/App.tsx` and an empty `projectId`/`dataset`. The steps below replace both.
 
-Add `@sanity/client` as a direct dependency, at the version `@sanity/sdk` uses, plus `iron-session` for the session cookie. The server functions use both.
+Add `@sanity/client` as a direct dependency, at the version `@sanity/sdk` uses. For `oauth` mode also add `iron-session` for the session cookie, and `@types/node` for the server functions.
 
 ```bash
-pnpm add @sanity/client iron-session
-pnpm add -D @types/node
+pnpm add @sanity/client
+pnpm add iron-session && pnpm add -D @types/node   # oauth mode only
 ```
 
 ### 2. Configure the project, dataset and organization
 
 `sanity build` and `sanity dev` replace `process.env.SANITY_APP_*` with literal values at build time. They read them from the shell and from `.env` files.
 
-- Read them in one module. See `src/env.ts`. It declares `process` locally, so it does not depend on `@types/node`.
+- Read them in one module. See `src/env.ts`. It declares `process` locally, so the browser code does not depend on `@types/node`.
 - Everything `SANITY_APP_*` that the browser code references ends up in the bundle. Never put a token or secret there.
 - `sanity dev` refuses to start without `app.organizationId` in `sanity.cli.ts` ("Apps require an organization ID"). See `sanity.cli.ts`. The OAuth functions also read `SANITY_APP_ORGANIZATION_ID` at runtime.
 
@@ -143,7 +207,53 @@ pnpm add -D @types/node
 
 `SDKProvider` is exported from `@sanity/sdk-react` but marked `@internal`. The SDK's Authentication Guide and its `apps/standalone-react` example use it for standalone apps. Pin your SDK version and re-test on upgrades.
 
-### 4. Create the OAuth client and register redirect URIs
+### 4. Send the SDK's auth requests to the project host
+
+In standalone mode the SDK runs its auth requests on the global host `api.sanity.io`: it exchanges the `sid` (`auth/fetch`), loads the current user (`users/me`), refreshes the token (`auth/refresh-token`) and logs out (`auth/logout`). That host sends no CORS headers for your domain, and a failed `users/me` puts the SDK in its "Authentication Error" state. The project host honors project CORS.
+
+This applies in both modes. With `auth.token` set, the SDK skips its own login but still loads `users/me` in the browser.
+
+The SDK creates those auth clients through `auth.clientFactory`, and only those. Point them at the project host. See `projectHostClientFactory` in `src/auth/projectAuth.ts`:
+
+```ts
+import {createClient, type ClientConfig} from '@sanity/client'
+
+export function projectHostClientFactory(config: ClientConfig) {
+  if (config.useProjectHostname === false && !config.projectId) {
+    return createClient({...config, projectId, useProjectHostname: true})
+  }
+  return createClient(config)
+}
+```
+
+### 5P. `project` mode: add a project-scoped login screen
+
+While the user has no session, render your own login screen instead of `SDKProvider`. If `SDKProvider` mounts while logged out, it sends the user to `www.sanity.io/login`, which cannot return to your domain.
+
+The login screen does what self-hosted Studio does. See `src/auth/projectAuth.ts`, `src/auth/ProjectLogin.tsx` and `src/auth/ProjectAuthProvider.tsx`.
+
+1. Fetch the providers: `GET https://<projectId>.api.sanity.io/v2021-10-01/auth/providers`. The response has `providers: [{name, title, url}]`, for example Google, GitHub and email.
+2. Link each provider to `<provider.url>?origin=<your page URL>&projectId=<projectId>&withSid=true`. That endpoint only accepts origins that are in your project's CORS list.
+3. After sign-in, the user returns to `origin` with `#sid=<session id>`. The SDK picks it up, exchanges it for a token, and stores the token in `localStorage` under `__sanity_auth_token`.
+
+```tsx
+const config = [{projectId, dataset, auth: {clientFactory: projectHostClientFactory}}]
+
+if (!hasSessionOrCallback()) return <ProjectLogin />
+return <SDKProvider config={config}>...</SDKProvider>
+```
+
+To sign out, `POST https://<projectId>.api.sanity.io/v2021-06-07/auth/logout` with the token, remove `__sanity_auth_token`, and reload. See `src/auth/SignOutButton.tsx`.
+
+### 6P. `project` mode: move `#sid` to the query before the SDK starts
+
+The provider login returns `#sid=...` in the hash. The SDK reads `sid` from the hash or the query, but after the exchange it only removes it from the query. With `#sid` left in the URL, a reload retries a used session ID and fails. Move it to the query at module load, before `SDKProvider` renders. See `moveHashSidToQuery()` in `src/auth/projectAuth.ts`.
+
+```ts
+moveHashSidToQuery() // top level of App.tsx
+```
+
+### 5O. `oauth` mode: create the OAuth client and register redirect URIs
 
 Create an OAuth client in the organization that owns the project. Register one redirect URI per environment:
 
@@ -152,11 +262,11 @@ Create an OAuth client in the organization that owns the project. Register one r
 
 The redirect URI the app sends (`SANITY_OAUTH_REDIRECT_URI`) must match a registered URI exactly, including scheme, port and path.
 
-### 5. Add the server functions
+### 6O. `oauth` mode: add the server functions
 
 The OAuth code runs in Vercel Functions under `api/`. Shared modules live in `api/_lib/`. Vercel does not deploy files under a directory starting with `_` as functions. Nothing under `api/` is bundled into the browser.
 
-- `api/_lib/env.ts` reads and validates the server-only variables at request time. A missing variable returns a 500 that names it. These variables must not use the `SANITY_APP_` prefix.
+- `api/_lib/env.ts` reads and validates the server-only variables at request time. A missing variable returns a 500 that names it. These variables must not use the `SANITY_APP_` prefix. Unless `SANITY_APP_AUTH_MODE=oauth`, every auth function returns 404.
 - `api/_lib/session.ts` configures iron-session. The whole session (access token, refresh token, expiry and `sanityUserId`) is sealed into an httpOnly cookie, so you don't need a session store. `chunk: true` splits it across several cookies when it is larger than the browser's per-cookie limit.
 - `api/_lib/oauth.ts` implements the protocol:
   - `beginOauth` creates a random `state` and PKCE verifier, seals both (plus `returnTo`) into a 10-minute cookie, and redirects to the authorize URL with the S256 challenge.
@@ -174,18 +284,18 @@ The four functions under `api/auth/sanity/`:
 - **`token`**: the only way the browser gets an access token. It returns `{accessToken, expiresAt}` from the session, refreshing first if the token is inside the refresh window. If refresh fails with a 4xx (other than 408 or 429), the session is destroyed and it returns 401. A network error or 5xx returns 503 and keeps the session.
 - **`logout`**: revokes the token, destroys the session, and redirects to login.
 
-### 6. Start the SDK with the session's token
+### 7O. `oauth` mode: start the SDK with the session's token
 
-`src/auth/SanityProvider.tsx` connects the server-side session to the SDK:
+`src/auth/OAuthAuthProvider.tsx` connects the server-side session to the SDK:
 
 - It fetches the first token from `/api/auth/sanity/token`. A 401 sends the user to `/api/auth/sanity/login?returnTo=<current path>`.
-- It builds the `SDKProvider` config once, with `projectId`, `dataset` and `auth: {token}`. With a token set, the SDK skips its own login flow, so it never redirects to `www.sanity.io/login`.
-- When `rotate` is on, `TokenSync` re-fetches the token every 5 minutes, on window focus, and on a `sanity-token-refresh` event. It passes any new token to the existing SDK instance with `setAuthToken` (also `@internal`), so queries and listeners are not torn down.
+- It builds the `SDKProvider` config once, with `projectId`, `dataset` and `auth: {token, clientFactory: projectHostClientFactory}` (step 4). With a token set, the SDK skips its own login flow, so it never redirects to `www.sanity.io/login`.
+- When `rotate` is on (the default), `TokenSync` re-fetches the token every 5 minutes, on window focus, and on a `sanity-token-refresh` event. It passes any new token to the existing SDK instance with `setAuthToken` (also `@internal`), so queries and listeners are not torn down.
 
 ```tsx
-<SanityProvider tokenUrl="/api/auth/sanity/token" rotate>
+<OAuthAuthProvider>
   <YourApp />
-</SanityProvider>
+</OAuthAuthProvider>
 ```
 
 Sign out with a form that posts to the logout function:
@@ -196,19 +306,19 @@ Sign out with a form that posts to the logout function:
 </form>
 ```
 
-### 7. Add your origins to the project's CORS list
+### 8. Add your origins to the project's CORS list
 
-The SDK calls `<projectId>.api.sanity.io` straight from the browser, so add every origin the app is served from: local dev (`http://localhost:3000`), the production domain, and any preview domains you want to test.
+The SDK calls `<projectId>.api.sanity.io` straight from the browser, so add every origin the app is served from: local dev, the production domain, and any preview domains you want to test. In `project` mode, allow credentials: the project-scoped login rejects origins that are not listed.
 
 ```bash
-pnpm exec sanity cors add https://your-app.example.com --project <projectId>
+pnpm exec sanity cors add https://your-app.example.com --credentials --project <projectId>
 ```
 
 Or use sanity.io/manage → your project → API → CORS origins.
 
-### 8. Build and deploy
+### 9. Build and deploy
 
-`sanity build` writes a static single-page app to `dist/`. The auth functions need a host that runs them next to the static files, on the same origin. For Vercel, see [Deploy to Vercel](#deploy-to-vercel).
+`sanity build` writes a static single-page app to `dist/`. In `project` mode any static host works if it serves `dist/` and falls back to `index.html` for unknown paths. In `oauth` mode the auth functions need a host that runs them next to the static files, on the same origin. For Vercel, see [Deploy to Vercel](#deploy-to-vercel).
 
 At this point sign-in, document reads and edits work on your domain. Add the proxy only if you need global-API hooks.
 
@@ -249,7 +359,7 @@ Three parts. Each is needed.
 - **A function, not a plain rewrite.** Vercel external rewrites forward the browser's `Origin` header, and `api.sanity.io` rejects authenticated requests from unknown origins. The function drops `Origin`.
 - **A fetch/XHR shim, not `auth.apiHost`.** The SDK uses one `apiHost` for every client. `@sanity/client` builds project URLs as `<projectId>.<apiHost host>`, so an `apiHost` with a path (`https://your-app.example.com/sanity-api`) would break every project-host request.
 - **The parameter name `__sanity_path`.** Vercel appends a rewrite's named parameter to the destination query string. A parameter called `path` was forwarded to `api.sanity.io`, which rejected it with 400 "path is not allowed". The function removes `__sanity_path` before forwarding.
-- **The proxy does not read the session.** The access token the SDK holds passes through in the `Authorization` header. The proxy never forwards the session cookie.
+- **The proxy does not read the session.** The token the SDK holds passes through in the `Authorization` header. In OAuth mode the proxy never forwards the session cookie.
 
 ### Other hosts
 
@@ -272,11 +382,14 @@ If you do not use global-API hooks:
 
 `vercel.json` sets `framework: null`, the install, build and dev commands, `outputDirectory: "dist"`, the proxy rewrite, and an SPA fallback to `index.html` that skips `/api/`. Files in `api/` deploy as functions, except `api/_lib/`.
 
-1. Register the production redirect URI (`https://your-app.example.com/api/auth/sanity/callback`) on the OAuth client.
-2. Add the production origin to the project's CORS list (step 7).
-3. In the Vercel project settings, under Environment Variables, set everything from `.env.example`:
-   - `SANITY_APP_PROJECT_ID`, `SANITY_APP_DATASET`, `SANITY_APP_ORGANIZATION_ID`, and optionally `SANITY_APP_GLOBAL_API_PROXY=true`. The build inlines these into the bundle, and the functions read them at runtime.
-   - `SANITY_OAUTH_CLIENT_ID`, `SANITY_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, the three OAuth endpoint URLs, and `SANITY_OAUTH_REDIRECT_URI` set to the production callback. Mark the secrets as sensitive. Do not pass secrets with `--build-env`: they are only needed at runtime.
+1. Add the production origin to the project's CORS list (step 8).
+2. In the Vercel project settings, under Environment Variables, set the shared variables:
+   - `SANITY_APP_PROJECT_ID`, `SANITY_APP_DATASET`, `SANITY_APP_ORGANIZATION_ID`.
+   - Optionally `SANITY_APP_GLOBAL_API_PROXY=true`.
+   - `SANITY_APP_AUTH_MODE` (`project` or `oauth`). The build inlines these into the bundle, and the functions read them at runtime.
+3. For `oauth` mode only:
+   - Register the production redirect URI (`https://your-app.example.com/api/auth/sanity/callback`) on the OAuth client.
+   - Set `SANITY_OAUTH_CLIENT_ID`, `SANITY_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, the three OAuth endpoint URLs, and `SANITY_OAUTH_REDIRECT_URI` set to the production callback. Mark the secrets as sensitive. Do not pass secrets with `--build-env`: they are only needed at runtime.
 4. Deploy.
 
    ```bash
@@ -285,55 +398,71 @@ If you do not use global-API hooks:
 
 Notes:
 
-- Serve over HTTPS. Cookies are marked `Secure` when `NODE_ENV=production`, so sign-in does not work over plain HTTP in production.
-- Changing `SESSION_SECRET` signs everyone out.
 - Use a current Vercel CLI (`npx vercel@latest`). Older global installs can fail on upload.
-- Each Vercel preview deployment has its own origin. Sign-in works on a preview only if its callback URL is registered on the OAuth client, `SANITY_OAUTH_REDIRECT_URI` points at it, and its origin is in the project's CORS list. Previews also sit behind Vercel Authentication by default.
+- Each Vercel preview deployment has its own origin. Sign-in works on a preview only if its origin is in the project's CORS list, and in `oauth` mode also if its callback URL is registered on the OAuth client and `SANITY_OAUTH_REDIRECT_URI` points at it. Previews also sit behind Vercel Authentication by default.
+- `oauth` mode: serve over HTTPS. Cookies are marked `Secure` when `NODE_ENV=production`, so sign-in does not work over plain HTTP in production. Changing `SESSION_SECRET` signs everyone out.
 
 ## Verify a deployment
+
+`project` mode:
+
+1. Open the deployed URL in a private window. You see the "Sign in" screen with your project's login providers.
+2. Sign in. You return to your domain, signed in, and the URL has no `sid`.
+3. Reload. You stay signed in.
+4. Recent documents load. In the network panel, data requests and `users/me` go to `<projectId>.api.sanity.io`.
+5. Sign out. You see the "Sign in" screen again.
+
+`oauth` mode:
 
 1. Open the deployed URL in a private window. You should be redirected to the Sanity sign-in page.
 2. Sign in and pick the organization that owns the project. You return to your domain, signed in.
 3. Reload. You stay signed in. In the browser's storage panel, there is no token in `localStorage`. The `sanity_session` cookie is `HttpOnly`.
-4. Recent documents load. In the network panel, data requests go to `<projectId>.api.sanity.io`.
+4. Recent documents load. In the network panel, data requests and `users/me` go to `<projectId>.api.sanity.io`.
 5. Sign out. You are sent back through sign-in.
-6. If the proxy is enabled, the "Global API hooks" panel shows `proxy: on` and real values. Global requests appear as `/sanity-api/...` on your origin, and responses carry `x-sanity-global-proxy: 1`.
+
+Both modes: if the proxy is enabled, the "Global API hooks" panel shows `proxy: on` and real values. Global requests appear as `/sanity-api/...` on your origin, and responses carry `x-sanity-global-proxy: 1`.
 
 To check the functions without a browser:
 
 ```bash
-curl -i "https://your-app.example.com/api/auth/sanity/token"        # 401 without a session
-curl -i "https://your-app.example.com/api/auth/sanity/login"        # 302 to the authorize URL
+curl -i "https://your-app.example.com/api/auth/sanity/token"        # oauth: 401 without a session. project: 404
+curl -i "https://your-app.example.com/api/auth/sanity/login"        # oauth: 302 to the authorize URL. project: 404
 curl -i "https://your-app.example.com/sanity-api/v2025-02-19/users/me"  # proxy: 200 and {} without a token
 ```
 
 ## Limitations and security notes
 
-- **One project per app.** The session and the organization check are for one project, set by `SANITY_APP_PROJECT_ID`.
-- **The access token is in browser memory.** The refresh token and client secret never leave the server, and nothing is written to `localStorage`. But the access token the SDK holds can still list the user's organizations, projects and datasets through `api.sanity.io` until it expires. Keep third-party scripts to a minimum and use a strict Content Security Policy.
-- **Token refresh is server-side.** The token function refreshes when the access token is within `SANITY_TOKEN_REFRESH_WINDOW_SECONDS` of expiry, and `SanityProvider` picks the new token up within 5 minutes, on focus, or on the `sanity-token-refresh` event.
-- **Logout does not end the sanity.io login.** Revoking the token does not necessarily sign the user out of sanity.io, so the next sign-in may skip the login screen.
-- **Local dev needs `vercel dev`.** `sanity dev` alone cannot run the auth functions.
+- **One project per app.** In `project` mode the token works on one project host only. In `oauth` mode the session and the organization check are for one project. Both are set by `SANITY_APP_PROJECT_ID`.
+- **`project` mode keeps the token in `localStorage`.** The global API accepts it, so any script on the page can read it and list the user's organizations, projects and datasets across every organization they belong to. Keep third-party scripts to a minimum and use a strict Content Security Policy.
+- **`oauth` mode keeps the access token in browser memory.** The refresh token and client secret never leave the server, and nothing is written to `localStorage`. The access token is requested for one organization (not yet verified), but can still list that organization's projects and datasets through `api.sanity.io` until it expires.
+- **`oauth` mode: token refresh is server-side.** The token function refreshes when the access token is within `SANITY_TOKEN_REFRESH_WINDOW_SECONDS` of expiry, and `OAuthAuthProvider` picks the new token up within 5 minutes, on focus, or on the `sanity-token-refresh` event.
+- **`oauth` mode: logout does not end the sanity.io login.** Revoking the token does not necessarily sign the user out of sanity.io, so the next sign-in may skip the login screen.
+- **`oauth` mode: local dev needs `vercel dev`.** `sanity dev` alone cannot run the auth functions.
+- **`oauth` mode: not yet tested end to end** against a real OAuth client, including whether an organization-scoped OAuth token is accepted by the project host's `users/me`.
 - **Dashboard-only features do not work standalone.** Favorites, document history and `useFrameConnection` need the Dashboard frame. This is unrelated to hosting.
 - **Not verified through the proxy.** PATCH and PUT, `useUsers`/`useUser`, `useDeleteApplication`, comments, agent actions, and cold-start latency. GET, POST and DELETE were tested through the same proxy design.
-- **The proxy shim is always in the bundle.** `SANITY_APP_GLOBAL_API_PROXY` controls whether it is installed, not whether it is bundled.
+- **Both auth modes and the proxy shim are always in the bundle.** `SANITY_APP_AUTH_MODE` and `SANITY_APP_GLOBAL_API_PROXY` control which code runs, not what is bundled. No secrets are in the browser code.
 - **Depends on SDK internals.** `SDKProvider` and `setAuthToken` are `@internal` in SDK 3.12.0. Re-test after SDK upgrades.
 
 ## Files in this template
 
 | File | Purpose |
 |---|---|
-| `src/App.tsx` | Entry. Optionally installs the proxy shim, renders `SanityProvider` and the example view with a sign-out button. |
-| `src/env.ts` | Reads the `SANITY_APP_*` build-time variables. |
-| `src/auth/SanityProvider.tsx` | Fetches the access token, starts `SDKProvider` with it, rotates it, redirects to sign-in on 401. |
+| `src/App.tsx` | Entry. Picks the auth provider for `SANITY_APP_AUTH_MODE`, optionally installs the proxy shim, renders the example view with a sign-out button. |
+| `src/env.ts` | Reads the `SANITY_APP_*` build-time variables, including `authMode`. |
+| `src/auth/projectAuth.ts` | `projectHostClientFactory` (both modes), plus the `project` mode login helpers and `moveHashSidToQuery`. |
+| `src/auth/ProjectAuthProvider.tsx` | `project` mode: login screen while logged out, otherwise `SDKProvider` with the client factory. |
+| `src/auth/ProjectLogin.tsx` | `project` mode: lists the project's login providers. |
+| `src/auth/OAuthAuthProvider.tsx` | `oauth` mode: fetches the access token, starts `SDKProvider` with it, rotates it, redirects to sign-in on 401. |
+| `src/auth/SignOutButton.tsx` | Sign-out for the current mode. |
 | `src/RecentDocuments.tsx` | Example data view. Lists documents and edits each `title` with `useEditDocument`. Replace with your app. |
 | `src/GlobalApiCheck.tsx` | Diagnostic panel for global-API hooks. Optional. |
 | `src/globalApiProxy.ts` | Optional browser shim: `api.sanity.io` → `/sanity-api`. |
-| `api/auth/sanity/login.ts` | Starts OAuth: sealed state and PKCE cookie, redirect to the authorize URL. |
-| `api/auth/sanity/callback.ts` | Verifies state, exchanges the code, checks the organization, writes the session. |
-| `api/auth/sanity/token.ts` | Returns the access token, refreshing it near expiry. |
-| `api/auth/sanity/logout.ts` | Revokes the token, clears the session. |
-| `api/_lib/*` | Shared server code: env, cookies, session, OAuth protocol, Sanity user checks. |
+| `api/auth/sanity/login.ts` | `oauth` mode: starts OAuth with a sealed state and PKCE cookie, redirect to the authorize URL. |
+| `api/auth/sanity/callback.ts` | `oauth` mode: verifies state, exchanges the code, checks the organization, writes the session. |
+| `api/auth/sanity/token.ts` | `oauth` mode: returns the access token, refreshing it near expiry. |
+| `api/auth/sanity/logout.ts` | `oauth` mode: revokes the token, clears the session. |
+| `api/_lib/*` | `oauth` mode shared server code: env and mode check, cookies, session, OAuth protocol, Sanity user checks. |
 | `api/sanity-proxy.ts` | Optional Vercel Function: `/sanity-api` → `api.sanity.io`, without `Origin`. |
 | `vercel.json` | Build and dev settings, proxy rewrite, SPA fallback. |
 | `sanity.cli.ts` | App entry and `organizationId` for `sanity dev`. |

@@ -5,8 +5,8 @@
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
-    "dev": "npx vercel@latest dev",
-    "dev:app": "sanity dev",
+    "dev": "sanity dev",
+    "dev:oauth": "npx vercel@latest dev",
     "build": "sanity build",
     "typecheck": "tsc --noEmit"
   },

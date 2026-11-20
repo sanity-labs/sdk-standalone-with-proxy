@@ -1,14 +1,22 @@
 import {useCurrentUser} from '@sanity/sdk-react'
 import {Suspense} from 'react'
-import {SanityProvider} from './auth/SanityProvider'
-import {dataset, projectId, useGlobalApiProxy} from './env'
+import {OAuthAuthProvider} from './auth/OAuthAuthProvider'
+import {moveHashSidToQuery} from './auth/projectAuth'
+import {ProjectAuthProvider} from './auth/ProjectAuthProvider'
+import {SignOutButton} from './auth/SignOutButton'
+import {authMode, dataset, projectId, useGlobalApiProxy} from './env'
 import {GlobalApiCheck} from './GlobalApiCheck'
 import {installGlobalApiProxy} from './globalApiProxy'
 import {RecentDocuments} from './RecentDocuments'
 import './App.css'
 
-// Runs before SDKProvider creates its clients.
+// Both run before SDKProvider creates its instance, reads location.href and
+// creates its clients.
+if (authMode === 'project') moveHashSidToQuery()
 if (useGlobalApiProxy) installGlobalApiProxy()
+
+// SANITY_APP_AUTH_MODE: `project` (default) or `oauth`. See README "Choose an auth mode".
+const AuthProvider = authMode === 'oauth' ? OAuthAuthProvider : ProjectAuthProvider
 
 function Home() {
   const user = useCurrentUser()
@@ -17,9 +25,7 @@ function Home() {
       <p className="muted">
         Signed in as {user?.name ?? '(unknown)'} · {projectId}/{dataset}
       </p>
-      <form method="post" action="/api/auth/sanity/logout">
-        <button type="submit">Sign out</button>
-      </form>
+      <SignOutButton />
       <h2>Recent documents</h2>
       <Suspense fallback={<p>Loading documents…</p>}>
         <RecentDocuments />
@@ -33,14 +39,14 @@ function App() {
   if (!projectId) {
     return <p>Set SANITY_APP_PROJECT_ID in .env (see .env.example).</p>
   }
-  // SDKProvider (inside SanityProvider), not SanityApp: SanityApp redirects to
+  // Both providers render SDKProvider, not SanityApp: SanityApp redirects to
   // sanity.io/welcome on any origin that is not localhost and not inside the
-  // Sanity Dashboard. SanityProvider gets the token from the server-side OAuth
-  // session, and sends the user to sign in when there is none.
+  // Sanity Dashboard. `project` mode shows a project-scoped login screen while
+  // logged out. `oauth` mode gets the token from the server-side OAuth session.
   return (
-    <SanityProvider tokenUrl="/api/auth/sanity/token" rotate>
+    <AuthProvider>
       <Home />
-    </SanityProvider>
+    </AuthProvider>
   )
 }
 

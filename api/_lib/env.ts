@@ -76,11 +76,21 @@ export function serverEnv(): ServerEnv {
 
 export const isProduction = process.env.NODE_ENV === 'production'
 
+// The auth functions only run in auth mode `oauth`. Vercel deploys every file in
+// api/, so in the default `project` mode they exist but answer 404.
+export const oauthEnabled = () => process.env.SANITY_APP_AUTH_MODE === 'oauth'
+
 // Wraps a handler so configuration errors become a readable 500.
 export function withConfig(
   handler: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
   return async (request) => {
+    if (!oauthEnabled()) {
+      return Response.json(
+        {error: 'Not found', detail: 'Set SANITY_APP_AUTH_MODE=oauth to enable Sanity OAuth.'},
+        {status: 404, headers: {'cache-control': 'no-store'}},
+      )
+    }
     try {
       return await handler(request)
     } catch (error) {

@@ -2,6 +2,7 @@ import {setAuthToken, type SanityConfig} from '@sanity/sdk'
 import {SDKProvider, useSanityInstance} from '@sanity/sdk-react'
 import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react'
 import {dataset, projectId} from '../env'
+import {projectHostClientFactory} from './projectAuth'
 
 // Bridges the server-side OAuth session (api/auth/sanity/*) to the App SDK.
 //
@@ -15,12 +16,24 @@ import {dataset, projectId} from '../env'
 // to www.sanity.io/login. `SDKProvider` and `setAuthToken` are marked `@internal`
 // in @sanity/sdk 3.12, so they may change between SDK releases.
 
-export interface SanityProviderProps {
+export interface OAuthAuthProviderProps {
   /** Endpoint returning `{accessToken, expiresAt}`. */
-  tokenUrl: string
+  tokenUrl?: string
   /** Poll the token endpoint and push rotated tokens into the SDK. */
-  rotate: boolean
+  rotate?: boolean
   children?: ReactNode
+}
+
+// Written by auth mode `project`. A token left over from that mode is cleared so
+// the SDK's storage-event listener cannot swap it in for the OAuth token.
+const PROJECT_MODE_TOKEN_KEY = '__sanity_auth_token'
+
+function clearProjectModeToken() {
+  try {
+    window.localStorage.removeItem(PROJECT_MODE_TOKEN_KEY)
+  } catch {
+    // Storage unavailable: nothing to clear.
+  }
 }
 
 interface TokenResponse {
@@ -44,11 +57,16 @@ function redirectToLogin() {
   window.location.assign(`/api/auth/sanity/login?returnTo=${encodeURIComponent(returnTo)}`)
 }
 
-export function SanityProvider({tokenUrl, rotate, children}: SanityProviderProps) {
+export function OAuthAuthProvider({
+  tokenUrl = '/api/auth/sanity/token',
+  rotate = true,
+  children,
+}: OAuthAuthProviderProps) {
   const [initialToken, setInitialToken] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    clearProjectModeToken()
     let cancelled = false
     fetchToken(tokenUrl)
       .then((t) => {
@@ -67,7 +85,13 @@ export function SanityProvider({tokenUrl, rotate, children}: SanityProviderProps
   // Built once. Later token changes go through setAuthToken, not a new config,
   // so the SDK instance (and its listeners) is not recreated.
   const config = useMemo<SanityConfig[] | null>(
-    () => (initialToken ? [{projectId, dataset, auth: {token: initialToken}}] : null),
+    // clientFactory: the SDK still loads the current user (users/me) in the
+    // browser. Without it that call goes to api.sanity.io, which sends no CORS
+    // headers for your domain, and the SDK shows "Authentication Error".
+    () =>
+      initialToken
+        ? [{projectId, dataset, auth: {token: initialToken, clientFactory: projectHostClientFactory}}]
+        : null,
     [initialToken],
   )
 
